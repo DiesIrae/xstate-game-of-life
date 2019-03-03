@@ -1,3 +1,4 @@
+//Unused
 // Available variables:
 // Machine (machine factory function)
 // XState (all XState exports)

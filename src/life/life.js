@@ -1,6 +1,6 @@
 import _ from "lodash"
 import { Machine, interpret, actions } from "xstate"
-const { send, raise, assign } = actions
+const { send, assign } = actions
 //import { interpret2 } from "./interpreter"
 
 //import initialBoard from "./smallBoard"
