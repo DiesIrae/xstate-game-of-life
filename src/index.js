@@ -1,0 +1,1 @@
+import "./life/life.js"

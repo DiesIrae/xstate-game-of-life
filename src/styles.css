@@ -1,0 +1,25 @@
+body {
+  font-family: sans-serif;
+}
+
+.board {
+  border: 1px solid black;
+  width: fit-content;
+}
+
+.line {
+  display: flex;
+}
+
+.cell {
+  width: 10px;
+  height: 10px;
+}
+
+.alive {
+  background-color: black;
+}
+
+.counter {
+  padding: 10px;
+}
