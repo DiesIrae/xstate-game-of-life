@@ -21,6 +21,8 @@ const getCellNextState = (x, y) => {
   return getNextStateFromContext(state, neighboursStates)
 }
 
+// Beacon for state-viz: BEGIN COPY
+
 const getCell = (x, y, initial) => {
   const cellPrefix = "cell"
   const coordinates = `_${x}_${y}`
@@ -159,6 +161,8 @@ const lifeMachine = Machine({
     pulse,
   },
 })
+
+// Beacon for state-viz: END COPY
 
 console.time("computation")
 const life = interpret(lifeMachine).onTransition((state, event) => {
