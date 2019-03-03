@@ -1,4 +1,5 @@
-import { actions as xActions } from "xstate"
+
+// Unused interpreter, adding action.context & current state to sent actions
 
 export const interpret2 = machine => {
   let currentState = machine.initial
