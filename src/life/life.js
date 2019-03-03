@@ -1,66 +1,95 @@
 import _ from "lodash"
 import { Machine, interpret, actions } from "xstate"
-const { send, assign } = actions
+const { send, assign, raise, log } = actions
 //import { interpret2 } from "./interpreter"
 
-//import initialBoard from "./smallBoard"
-import initialBoard from "./mediumBoard"
+import initialBoard from "./smallBoard"
+// import initialBoard from "./mediumBoard"
 import { getNextStateFromContext, getNeighbourCoordinates } from "./game"
-import { makeBoard, updateBoard, updateCell, updateCounter } from "./dom"
+import { makeBoard, updateCell, updateCounter } from "./dom"
 
-const getCurrentStateCellValue = (x, y, isNext) => {
-  const boardValue = life.state.value[isNext ? "nextBoard" : "board"]
-  return boardValue[`cell_${x}_${y}`]
+const getCurrentStateCellValue = (x, y) => {
+  const boardValue = life.state.value.board
+  const cell = boardValue[`cell_${x}_${y}`]
+  return cell && cell.currentState
 }
 
 const getCellNextState = (x, y) => {
   const state = getCurrentStateCellValue(x, y)
   const neighboursStates = getNeighbourCoordinates(x, y).map(([x, y]) => getCurrentStateCellValue(x, y))
+  // console.log(getNextStateFromContext(state, neighboursStates))
   return getNextStateFromContext(state, neighboursStates)
 }
 
-const getCell = (x, y, initial, isNext) => {
-  const cellPrefix = isNext ? "nextCell" : "cell"
+const getCell = (x, y, initial) => {
+  const cellPrefix = "cell"
+  const coordinates = `_${x}_${y}`
   const id = `${cellPrefix}_${x}_${y}`
-  const cond = (ctx, e) => x === e.x && y === e.y && isNext === e.isNext
+
+  const LIVE = `LIVE${coordinates}`
+  const DIE = `DIE${coordinates}`
+  const LIVE_NEXT = `LIVE_NEXT${coordinates}`
+  const DIE_NEXT = `DIE_NEXT${coordinates}`
 
   return {
     id,
-    initial,
+    type: "parallel",
     states: {
-      dead: {
-        on: {
-          LIVE: {
-            target: "alive",
-            cond,
+      currentState: {
+        initial,
+        states: {
+          dead: {
+            onEntry: () => updateCell(x, y, "dead"),
+            on: {
+              [LIVE]: "alive",
+              TRANSITION: {
+                cond: () => getCellNextState(x, y) === "alive",
+                actions: raise(LIVE_NEXT),
+              }
+            }
           },
-          TRANSITION: {
-            target: "alive",
-            cond: () => isNext && getCellNextState(x, y) === "alive",
-          },
-          COPY: {
-            target: "alive",
-            cond: () => !isNext && getCellNextState(x, y, true) === "alive",
-            actions: () => updateCell(x, y, "alive"),
-          },
-        },
+          alive: {
+            onEntry: () => updateCell(x, y, "alive"),
+            on: {
+              [DIE]: "dead",
+              TRANSITION: {
+                cond: () => getCellNextState(x, y) === "dead",
+                actions: raise(DIE_NEXT),
+              }
+            }
+          }
+        }
       },
-      alive: {
-        on: {
-          DIE: {
-            target: "dead",
-            cond,
+      nextState: {
+        initial,
+        states: {
+          dead: {
+            on: {
+              [LIVE_NEXT]: "living"
+            }
           },
-          TRANSITION: {
-            target: "dead",
-            cond: () => isNext && getCellNextState(x, y) === "dead",
+          alive: {
+            on: {
+              [DIE_NEXT]: "dying"
+            }
           },
-          COPY: {
-            target: "dead",
-            cond: () => !isNext && getCellNextState(x, y, true) === "dead",
-            actions: () => updateCell(x, y, "dead"),
+          dying: {
+            on: {
+              COPY: {
+                target: "dead",
+                actions: raise(DIE)
+              }
+            }
           },
-        },
+          living: {
+            on: {
+              COPY: {
+                target: "alive",
+                actions: raise(LIVE)
+              }
+            }
+          }
+        }
       },
     },
   }
@@ -85,11 +114,6 @@ const board = {
   states: getAllCells(),
 }
 
-const nextBoard = {
-  type: "parallel",
-  states: getAllCells(true),
-}
-
 const pulse = {
   initial: "idle",
   //TODO: why not this context?
@@ -98,6 +122,7 @@ const pulse = {
   // },
   states: {
     idle: {
+      onEntry: [({ count }) => updateCounter(count)],
       on: {
         MANUAL: "manual",
         AUTO: "auto",
@@ -117,7 +142,7 @@ const pulse = {
     auto: {
       onEntry: [send("TRANSITION"), send("COPY"), assign({ count: ({ count }) => count + 1 }), ({ count }) => updateCounter(count)],
       after: {
-        1500: "auto",
+        5000: "auto",
       },
     },
   },
@@ -131,7 +156,6 @@ const lifeMachine = Machine({
   },
   states: {
     board,
-    nextBoard,
     pulse,
   },
 })
@@ -139,7 +163,7 @@ const lifeMachine = Machine({
 console.time("computation")
 const life = interpret(lifeMachine).onTransition((state, event) => {
   //console.log(state)
-  //console.log(event.type, state.value)
+  console.log(event.type, state.value)
 
   if (event.type !== "TRANSITION") {
     console.timeEnd("computation")
@@ -151,10 +175,12 @@ const life = interpret(lifeMachine).onTransition((state, event) => {
 
 makeBoard(initialBoard)
 life.start()
-updateBoard(life.state)
+// updateBoard(life.state)
 
-life.send("AUTO")
+// life.send("AUTO")
 
-//life.send("MANUAL")
-//setTimeout(() => life.send("STEP"), 3000)
-//setTimeout(() => life.send("STEP"), 6000)
+life.send("MANUAL")
+setTimeout(() => life.send("STEP"), 5000)
+setTimeout(() => life.send("STEP"), 10000)
+
+global.life = life
