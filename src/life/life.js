@@ -1,17 +1,16 @@
 import _ from "lodash"
 import { Machine, interpret, actions } from "xstate"
-const { send, assign, raise, log } = actions
+const { send, assign, raise, log, sendParent } = actions
 //import { interpret2 } from "./interpreter"
 
-import initialBoard from "./smallBoard"
-// import initialBoard from "./mediumBoard"
+// import initialBoard from "./smallBoard"
+import initialBoard from "./mediumBoard"
 import { getNextStateFromContext, getNeighbourCoordinates } from "./game"
 import { makeBoard, updateCell, updateCounter } from "./dom"
 
 const getCurrentStateCellValue = (x, y) => {
   const boardValue = life.state.value.board
-  const cell = boardValue[`cell_${x}_${y}`]
-  return cell && cell.currentState
+  return boardValue[`cell_${x}_${y}`]
 }
 
 const getCellNextState = (x, y) => {
@@ -23,76 +22,92 @@ const getCellNextState = (x, y) => {
 
 // Beacon for state-viz: BEGIN COPY
 
+
+const nextStateCell = Machine({
+  id: "nextStateCell",
+  initial: "waiting",
+  states: {
+    waiting: {
+      on: {
+        DIE: "dead",
+        LIVE: "alive",
+      }
+    },
+    dead: {
+      on: {
+        COPY: {
+          actions: sendParent("DIE"),
+          target: "done"
+        }
+      }
+    },
+    alive: {
+      on: {
+        COPY: {
+          actions: sendParent("LIVE"),
+          target: "done"
+        }
+      }
+    },
+    done: {
+      type: "final"
+    }
+  }
+})
+
 const getCell = (x, y, initial) => {
   const cellPrefix = "cell"
-  const coordinates = `_${x}_${y}`
   const id = `${cellPrefix}_${x}_${y}`
-
-  const LIVE = `LIVE${coordinates}`
-  const DIE = `DIE${coordinates}`
-  const LIVE_NEXT = `LIVE_NEXT${coordinates}`
-  const DIE_NEXT = `DIE_NEXT${coordinates}`
+  const nextCellId = `next_${id}`
 
   return {
     id,
-    type: "parallel",
+    initial,
     states: {
-      currentState: {
-        initial,
-        states: {
-          dead: {
-            onEntry: () => updateCell(x, y, "dead"),
-            on: {
-              [LIVE]: "alive",
-              TRANSITION: {
-                cond: () => getCellNextState(x, y) === "alive",
-                actions: raise(LIVE_NEXT),
-              }
-            }
-          },
-          alive: {
-            onEntry: () => updateCell(x, y, "alive"),
-            on: {
-              [DIE]: "dead",
-              TRANSITION: {
-                cond: () => getCellNextState(x, y) === "dead",
-                actions: raise(DIE_NEXT),
-              }
-            }
+      dead: {
+        onEntry: () => updateCell(x, y, "dead"),
+        on: {
+          TRANSITION: {
+            cond: () => getCellNextState(x, y) === "alive",
+            target: "living"
           }
         }
       },
-      nextState: {
-        initial,
-        states: {
-          dead: {
-            on: {
-              [LIVE_NEXT]: "living"
-            }
-          },
-          alive: {
-            on: {
-              [DIE_NEXT]: "dying"
-            }
-          },
-          dying: {
-            on: {
-              COPY: {
-                target: "dead",
-                actions: raise(DIE)
-              }
-            }
-          },
-          living: {
-            on: {
-              COPY: {
-                target: "alive",
-                actions: raise(LIVE)
-              }
-            }
+      alive: {
+        onEntry: () => updateCell(x, y, "alive"),
+        on: {
+          TRANSITION: {
+            cond: () => getCellNextState(x, y) === "dead",
+            target: "dying"
           }
         }
       },
+      dying: {
+        invoke: {
+          id: nextCellId,
+          src: "nextStateCell",
+        },
+        onEntry: send("DIE", {to: nextCellId}),
+        on: {
+          DIE: "dead",
+          COPY: {
+            actions: send("COPY", {to: nextCellId}),
+          }
+        }
+      },
+      living: {
+        invoke: {
+          id: nextCellId,
+          src: "nextStateCell",
+        },
+        onEntry: send("LIVE", {to: nextCellId}),
+        on: {
+          LIVE: "alive",
+          COPY: {
+            actions: send("COPY", {to: nextCellId}),
+          }
+        }
+      }
     },
   }
 }
@@ -144,7 +159,7 @@ const pulse = {
     auto: {
       onEntry: [send("TRANSITION"), send("COPY"), assign({ count: ({ count }) => count + 1 }), ({ count }) => updateCounter(count)],
       after: {
-        5000: "auto",
+        1500: "auto",
       },
     },
   },
@@ -160,16 +175,16 @@ const lifeMachine = Machine({
     board,
     pulse,
   },
-})
+}, {services: {nextStateCell}})
 
 // Beacon for state-viz: END COPY
 
 console.time("computation")
 const life = interpret(lifeMachine).onTransition((state, event) => {
-  //console.log(state)
-  console.log(event.type, state.value)
+  // console.log(state)
+  // console.log(event.type, state.value)
 
-  if (event.type !== "TRANSITION") {
+  if (_.includes(["COPY", "TRANSITION"], event.type)) {
     console.timeEnd("computation")
     console.time("computation")
   }
@@ -181,7 +196,7 @@ makeBoard(initialBoard)
 life.start()
 // updateBoard(life.state)
 
-// life.send("AUTO")
+life.send("AUTO")
 
 life.send("MANUAL")
 setTimeout(() => life.send("STEP"), 5000)
