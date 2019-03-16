@@ -1,37 +1,41 @@
-import _ from "lodash"
-import { Machine, interpret, actions } from "xstate"
-const { send, assign, raise, log } = actions
+import _ from "lodash";
+import { Machine, interpret, actions } from "xstate";
+const { send, assign, raise, log } = actions;
 //import { interpret2 } from "./interpreter"
 
-import initialBoard from "./smallBoard"
-// import initialBoard from "./mediumBoard"
-import { getNextStateFromContext, getNeighbourCoordinates } from "./game"
-import { makeBoard, updateCell, updateCounter } from "./dom"
+// import initialBoard from "./smallBoard";
+import initialBoard from "./mediumBoard";
+import { getNextStateFromContext, getNeighbourCoordinates } from "./game";
+import { makeBoard, updateCell, updateCounter } from "./dom";
 
 const getCurrentStateCellValue = (x, y) => {
-  const boardValue = life.state.value.board
-  const cell = boardValue[`cell_${x}_${y}`]
-  return cell && cell.currentState
-}
+  // const boardValue = life.state.value.board;
+  // const cell = boardValue[`cell_${x}_${y}`];
+  // return cell && cell.currentState;
+  const cellInterpreter = life.children.get(`cell_${x}_${y}`);
+  return cellInterpreter && cellInterpreter.state.value.currentState;
+};
 
 const getCellNextState = (x, y) => {
-  const state = getCurrentStateCellValue(x, y)
-  const neighboursStates = getNeighbourCoordinates(x, y).map(([x, y]) => getCurrentStateCellValue(x, y))
+  const state = getCurrentStateCellValue(x, y);
+  const neighboursStates = getNeighbourCoordinates(x, y).map(([x, y]) =>
+    getCurrentStateCellValue(x, y)
+  );
   // console.log(getNextStateFromContext(state, neighboursStates))
-  return getNextStateFromContext(state, neighboursStates)
-}
+  return getNextStateFromContext(state, neighboursStates);
+};
 
 // Beacon for state-viz: BEGIN COPY
 
 const getCell = (x, y, initial) => {
-  const cellPrefix = "cell"
-  const coordinates = `_${x}_${y}`
-  const id = `${cellPrefix}_${x}_${y}`
+  const cellPrefix = "cell";
+  const coordinates = `_${x}_${y}`;
+  const id = `${cellPrefix}_${x}_${y}`;
 
-  const LIVE = `LIVE${coordinates}`
-  const DIE = `DIE${coordinates}`
-  const LIVE_NEXT = `LIVE_NEXT${coordinates}`
-  const DIE_NEXT = `DIE_NEXT${coordinates}`
+  const LIVE = `LIVE${coordinates}`;
+  const DIE = `DIE${coordinates}`;
+  const LIVE_NEXT = `LIVE_NEXT${coordinates}`;
+  const DIE_NEXT = `DIE_NEXT${coordinates}`;
 
   return {
     id,
@@ -46,7 +50,7 @@ const getCell = (x, y, initial) => {
               [LIVE]: "alive",
               TRANSITION: {
                 cond: () => getCellNextState(x, y) === "alive",
-                actions: raise(LIVE_NEXT),
+                actions: raise(LIVE_NEXT)
               }
             }
           },
@@ -56,7 +60,7 @@ const getCell = (x, y, initial) => {
               [DIE]: "dead",
               TRANSITION: {
                 cond: () => getCellNextState(x, y) === "dead",
-                actions: raise(DIE_NEXT),
+                actions: raise(DIE_NEXT)
               }
             }
           }
@@ -92,29 +96,51 @@ const getCell = (x, y, initial) => {
             }
           }
         }
-      },
-    },
-  }
-}
+      }
+    }
+  };
+};
 
-const getAllCells = isNext => {
-  const boardCells = initialBoard.map((line, y) => {
+const cellMachines = _(initialBoard)
+  .map((line, y) => {
     return initialBoard[y].map((value, x) => {
-      const initial = value === 1 ? "alive" : "dead"
-      return getCell(x, y, initial, isNext)
-    })
+      const initial = value === 1 ? "alive" : "dead";
+      return getCell(x, y, initial);
+    });
   })
+  .flatten()
+  .map(cell => Machine(cell))
+  .value();
 
-  return _(boardCells)
-    .flatten()
-    .keyBy("id")
-    .value()
-}
+const getAllCells = () => {
+  return _.keyBy(cellMachines, "id");
+};
+
+const getAllCellIds = () => {
+  return _.keys(getAllCells());
+};
+
+const getAllCellInvocations = () => {
+  return getAllCellIds().map(id => ({ id, src: id }));
+};
 
 const board = {
-  type: "parallel",
-  states: getAllCells(),
-}
+  id: "board",
+  initial: "running",
+  states: {
+    running: {
+      invoke: getAllCellInvocations(),
+      on: {
+        COPY: {
+          actions: getAllCellIds().map(to => send("COPY", { to }))
+        },
+        TRANSITION: {
+          actions: getAllCellIds().map(to => send("TRANSITION", { to }))
+        }
+      }
+    }
+  }
+};
 
 const pulse = {
   initial: "idle",
@@ -127,64 +153,75 @@ const pulse = {
       onEntry: [({ count }) => updateCounter(count)],
       on: {
         MANUAL: "manual",
-        AUTO: "auto",
-      },
+        AUTO: "auto"
+      }
     },
     step: {
       onEntry: [send("TRANSITION"), send("COPY")],
       on: {
-        "": "manual",
-      },
+        "": "manual"
+      }
     },
     manual: {
       on: {
-        STEP: "step",
-      },
+        STEP: "step"
+      }
     },
     auto: {
-      onEntry: [send("TRANSITION"), send("COPY"), assign({ count: ({ count }) => count + 1 }), ({ count }) => updateCounter(count)],
+      onEntry: [
+        send("TRANSITION"),
+        send("COPY"),
+        assign({ count: ({ count }) => count + 1 }),
+        ({ count }) => updateCounter(count)
+      ],
       after: {
-        5000: "auto",
-      },
-    },
-  },
-}
+        1500: "auto"
+      }
+    }
+  }
+};
 
-const lifeMachine = Machine({
-  id: "life",
-  type: "parallel",
-  context: {
-    count: 0,
+const lifeMachine = Machine(
+  {
+    id: "life",
+    type: "parallel",
+    context: {
+      count: 0
+    },
+    states: {
+      board,
+      pulse
+    }
   },
-  states: {
-    board,
-    pulse,
-  },
-})
+  {
+    services: getAllCells()
+  }
+);
 
 // Beacon for state-viz: END COPY
 
-console.time("computation")
+console.time("computation");
 const life = interpret(lifeMachine).onTransition((state, event) => {
-  //console.log(state)
-  console.log(event.type, state.value)
+  // console.log(state);
+
+  console.log(event.type, state.value);
 
   if (event.type !== "TRANSITION") {
-    console.timeEnd("computation")
-    console.time("computation")
+    console.timeEnd("computation");
+    console.time("computation");
   }
 
   //if (event.type === "COPY") updateBoard(state)
-})
+});
 
-makeBoard(initialBoard)
-life.start()
+makeBoard(initialBoard);
+life.start();
 // updateBoard(life.state)
 
-// life.send("AUTO")
+life.send("AUTO");
 
-life.send("MANUAL")
-setTimeout(() => life.send("STEP"), 5000)
-setTimeout(() => life.send("STEP"), 10000)
+life.send("MANUAL");
+setTimeout(() => life.send("STEP"), 5000);
+setTimeout(() => life.send("STEP"), 10000);
 
-global.life = life
+global.life = life;
